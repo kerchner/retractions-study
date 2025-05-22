@@ -3,6 +3,7 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(stringr)
+library(crossref)
 
 # Calculate H-index from a list (as a skinny data frame) of citation counts
 h_index <- function(citation_counts_df) {
@@ -15,8 +16,13 @@ h_index <- function(citation_counts_df) {
   return(h_ind)
 }
 
+# Populate info for retractions ----
+
 retractions <- read.csv('Retraction_Clean_7.19 - RW_Clean_Data.csv') %>%
-  select(-X)
+  select(-X) %>%
+  filter(OriginalPaperPubMedID != 0) %>%
+  filter(!(OriginalPaperDOI %in% c('unavailable', 'Unavailable', ''))) %>%
+  drop_na(OriginalPaperDOI)
 
 dois <- retractions$OriginalPaperDOI
 RetractionDate <- retractions$RetractionDate
@@ -41,12 +47,12 @@ for(i in 1:nrow(works_df)) {
   id <- str_remove(work$id, 'https://openalex.org/')
   
   # Get authors info
-  authors_df <- work$author[[1]]
+  authors_df <- work$authorships[[1]]
   
   # Get first author
   first_author_id <- authors_df %>%
     filter(author_position == 'first') %>%
-    pull(au_id)
+    pull(id)
   
   num_authors <- nrow(authors_df)
   
@@ -65,7 +71,7 @@ for(i in 1:nrow(works_df)) {
     # Get last author
     last_author_id <- authors_df %>%
       filter(author_position == 'last') %>%
-      pull(au_id)
+      pull(id)
     
     last_author_id <- str_remove(last_author_id, 'https://openalex.org/')
  
@@ -149,3 +155,61 @@ retractions <- retractions %>%
 
 results_full_df <- left_join(results_df, retractions, by = c('doi' = 'OriginalPaperDOI_URL'))
 results_full_df2 <- left_join(retractions, results_df, by = c('OriginalPaperDOI_URL' = 'doi'))
+
+# Populate topics
+topics_df <- read.csv('Top 20 Cancers OpenAlex Topic IDs - Sheet1.csv')
+
+works_df$cancers <- NA
+for(i in 1:nrow(works_df)) {
+  work <- works_df[i, ]
+  topics_i <- work$topics[[1]]
+  
+  if(nrow(topics_i) == 0) {
+    next
+  }
+  cancers <- c()
+  for (j in 1:nrow(topics_i)) {
+    topic_j <- topics_i[j, ]
+    if (topic_j$id %in% topics_df$Topic.ID) {
+      cancers <- union(cancers,
+                   topics_df %>% filter(Topic.ID == topic_j$id) %>% pull(Cancer.Name))
+    }
+  }
+  if (length(cancers) > 0) {
+    works_df[i, ]$cancers <- paste(cancers, collapse=';')
+  }
+}
+
+# Populate info for controls ----
+controls_dois_df <- read.csv('controls_pmid_doi.csv')
+
+controls_df <- oa_fetch(entity = 'works',
+                     doi = controls_dois_df$doi,
+                     #  options = list(select = c('id', 'publication_date', 'authorships',
+                     #                            'is_retracted')),
+                     verbose = TRUE)
+
+# Determine cancer types
+controls_df$cancers <- NA
+for(i in 1:nrow(controls_df)) {
+  work <- controls_df[i, ]
+  topics_i <- work$topics[[1]]
+  
+  if(nrow(topics_i) == 0) {
+    next
+  }
+  cancers <- c()
+  for (j in 1:nrow(topics_i)) {
+    topic_j <- topics_i[j, ]
+    if (topic_j$id %in% topics_df$Topic.ID) {
+      cancers <- union(cancers,
+                       topics_df %>% filter(Topic.ID == topic_j$id) %>% pull(Cancer.Name))
+    }
+  }
+  if (length(cancers) > 0) {
+    controls_df[i, ]$cancers <- paste(cancers, collapse=';')
+  }
+}
+
+
+controls_crossref_df <- cr_works(controls_dois_df$doi[1:100])
