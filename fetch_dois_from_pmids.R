@@ -1,8 +1,10 @@
 library(dplyr)
 library(rentrez)
 library(XML)
+library(openalexR)
+library(purrr)
 
-num_controls <- 7200
+num_controls <- 8400
 batch_size <- 200
 
 controls_pmids <- read.csv('cancer_pmids_shuf.txt',
@@ -23,7 +25,7 @@ extract_ids <- function(article_node) {
 
 pmid_doi_df <- data.frame()
 for(starting_index in seq(1, num_controls, by = batch_size)) {
-  print(paste0(as.character(starting_idex),
+  print(paste0(as.character(starting_index),
                " through ",
                as.character(min(starting_index + batch_size - 1,
                                 num_controls)),
@@ -33,9 +35,29 @@ for(starting_index in seq(1, num_controls, by = batch_size)) {
                                                                        num_controls)],
                            rettype = "xml", parsed = TRUE)
   root_node <- xmlRoot(xml_data)
-  articleIdPubmeds <- xpathSApply(root_node, "//PubmedData/ArticleIdList/ArticleId[@IdType='pubmed']", xmlValue)
+  #articleIdPubmeds <- xpathSApply(root_node, "//PubmedData/ArticleIdList/ArticleId[@IdType='pubmed']", xmlValue)
   articleIdLists <- getNodeSet(root_node, "//PubmedData/ArticleIdList") #[@IdType='doi']", xmlValue)
   pmid_doi_df <- rbind(pmid_doi_df, map_dfr(articleIdLists, extract_ids))
 }
 
+# Drop anything with no DOI.
+pmid_doi_df <- pmid_doi_df %>%
+  drop_na()
 
+# Check for retracted, using OpenAlex
+options(openalexR.mailto = "kerchner@gwu.edu")
+controls_df <- oa_fetch(entity = 'works',
+                        doi = pmid_doi_df$doi,
+                        options = list(select = c('id', 'doi', 'is_retracted')),
+                        verbose = TRUE)
+
+# remove retracted
+# 8400 yields 7443
+controls_df <- controls_df %>%
+  filter(!is_retracted)
+
+# Filter pmid_doi_df based on dois in the filtered-down DOI list
+controls_df2 <- pmid_doi_df %>%
+  filter(paste0('https://doi.org/', doi) %in% controls_df$doi)
+
+write.csv(controls_df2, 'controls_pmid_doi.csv')
