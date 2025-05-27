@@ -38,7 +38,7 @@ works_df <- oa_fetch(entity = 'works',
 
 results_df <- data.frame()
 
-for(i in 1:nrow(works_df)) {
+for(i in 1:10) { #nrow(works_df)) {
   print(paste("Paper number", i))
   
   work <- works_df[i, ]
@@ -57,6 +57,9 @@ for(i in 1:nrow(works_df)) {
   num_authors <- nrow(authors_df)
   
   first_author_id <- str_remove(first_author_id, 'https://openalex.org/')
+  
+  # Citation counts and h-index for first and last authors
+  # Ref: https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/authors/hirsch-index.ipynb
   
   print("   Fetching first author info")
   first_author_citation_counts_df <- oa_fetch(entity = 'works',
@@ -87,8 +90,14 @@ for(i in 1:nrow(works_df)) {
     last_author_h_index <- first_author_h_index # since there's only 1 author
   }
   
-  # TODO: We will need to compute the author's H-Index.
-  # See https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/authors/hirsch-index.ipynb
+  # Author countries
+  authors_countries <- c()
+  for (affiliation_df in authors_df$affiliations) {
+    country_codes <- affiliation_df$country_code
+    authors_countries <- unique(c(authors_countries, country_codes))
+  }
+  
+  authors_countries_list <- paste(authors_countries, collapse = ';')
   
   retraction_date <- as.Date(RetractionDate[i], format = "%m/%d/%Y")
   
@@ -109,13 +118,13 @@ for(i in 1:nrow(works_df)) {
     citations_before_retraction <- NA
     citations_after_retraction <- NA
   }
-
   
   results_row_df <- data.frame(doi = work$doi,
                                num_authors,
                                #num_citations = work$cited_by_count,
                                first_author_h_index, last_author_h_index,
-                               citations_before_retraction, citations_after_retraction)
+                               citations_before_retraction, citations_after_retraction,
+                               authors_countries_list)
   results_df <- rbind(results_df, results_row_df)
 }
 
