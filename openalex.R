@@ -38,7 +38,7 @@ works_df <- oa_fetch(entity = 'works',
 
 results_df <- data.frame()
 
-for(i in 1:10) { #nrow(works_df)) {
+for(i in 1:nrow(works_df)) {
   print(paste("Paper number", i))
   
   work <- works_df[i, ]
