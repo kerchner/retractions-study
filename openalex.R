@@ -5,7 +5,7 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(stringr)
-# library(crossref)
+library(rcrossref)
 library(tibble)
 library(countrycode)
 library(lubridate)
@@ -24,14 +24,13 @@ h_index <- function(citation_counts_df) {
 }
 
 # Function to collect/compute author stats for works ----
-author_and_citation_stats <- function(openalex_works_df, retraction_date_vec) {
+author_and_citation_stats <- function(openalex_works_df, is_retractions = TRUE) {
   results_df <- data.frame()
   all_country_codes <- c()
   for(i in 1:nrow(openalex_works_df)) {
     print(paste("Paper number", i))
     
     work <- openalex_works_df[i, ]
-    retraction_date <- as.Date(retraction_date_vec[i], format = "%m/%d/%Y")
     
     # Get the openalex ID (e.g. W1234567890)
     id <- str_remove(work$id, 'https://openalex.org/')
@@ -115,21 +114,27 @@ author_and_citation_stats <- function(openalex_works_df, retraction_date_vec) {
     all_country_codes <- c(all_country_codes, last_author_countries)
     
     # Citations info
-    print("   Fetching citations info")
-    if (work$cited_by_count > 0) {
-      citations_publications_dates <-
-        # works citing this work
-        oa_fetch(entity = 'works',
-                 cites = id,
-                 options = list(select = c("publication_date")),
-                 verbose = TRUE) %>%
-        pull(publication_date)
-      
-      citations_before_retraction <- sum(citations_publications_dates <= retraction_date)
-      citations_after_retraction <- sum(citations_publications_dates > retraction_date)
-    } else {
+    if (is_retractions) {
+      retraction_date <- as.Date(work$RetractionDate, format = "%m/%d/%Y")
+      print("   Fetching citations info and calculating citations before/after retraction")
+      if (work$cited_by_count > 0) {
+        citations_publications_dates <-
+          # works citing this work
+          oa_fetch(entity = 'works',
+                   cites = id,
+                   options = list(select = c("publication_date")),
+                   verbose = TRUE) %>%
+          pull(publication_date)
+        
+        citations_before_retraction <- sum(citations_publications_dates <= retraction_date)
+        citations_after_retraction <- sum(citations_publications_dates > retraction_date)
+      } else {
+        citations_before_retraction <- NA
+        citations_after_retraction <- NA
+      }
+    } else {  # our works are not retracted so these are N/A
       citations_before_retraction <- NA
-      citations_after_retraction <- NA
+      citations_after_retraction <- NA 
     }
     
     results_row_df <- data.frame(doi = work$doi,
@@ -183,20 +188,26 @@ retractions <- retractions %>%
   filter(doi_count == 1) %>%
   select(-doi_count)
 
-dois <- retractions$OriginalPaperDOI
-RetractionDate <- retractions$RetractionDate
+retractions <- retractions %>%
+  mutate(OriginalPaperDOI_https = paste0('https://doi.org/', OriginalPaperDOI))
 
 ## get openalex info on the retraction papers ----
 retractions_openalex_df <- oa_fetch(entity = 'works',
-                     doi = dois[1:100],
-                   #  options = list(select = c('id', 'publication_date', 'authorships',
-                   #                            'is_retracted')),
-                     verbose = TRUE)
+                                    doi = retractions$OriginalPaperDOI,#[1:100],
+                                    #  options = list(select = c('id', 'publication_date', 'authorships',
+                                    #                            'is_retracted')),
+                                    verbose = TRUE)
 
-## populate first/last authors, countries, h-index values ----
+# join on the retraction dates
+retractions_openalex_df <- left_join(retractions_openalex_df,
+                                     retractions %>% select(OriginalPaperDOI_https, RetractionDate),
+                                     by = c("doi" = "OriginalPaperDOI_https"))
+
+# populate first/last authors, countries, h-index values ----
 retractions_author_stats_df <- author_and_citation_stats(openalex_works_df = retractions_openalex_df,
-                                                         retraction_date_vec = RetractionDate)
-
+                                                         is_retractions = TRUE)
+# Join on the new results
+retractions_openalex_df <- left_join(retractions_openalex_df, retractions_author_stats_df)
 
 # Tally up the weighted concept terms
 concepts_list <- list()
@@ -263,10 +274,14 @@ for(i in 1:nrow(works_df)) {
 controls_dois_df <- read.csv('controls_pmid_doi.csv')
 
 controls_df <- oa_fetch(entity = 'works',
-                     doi = controls_dois_df$doi,
-                     #  options = list(select = c('id', 'publication_date', 'authorships',
-                     #                            'is_retracted')),
-                     verbose = TRUE)
+                        doi = controls_dois_df$doi,
+                        #  options = list(select = c('id', 'publication_date', 'authorships',
+                        #                            'is_retracted')),
+                        verbose = TRUE)
+
+# Compile a list of ISSNs
+all_issns <- unique(c(retractions_openalex_df$issn_l, controls_df$issn_l))
+write.csv(x = data.frame(issn = all_issns) %>% filter(!is.na(issn)), file = 'all_issns.csv', row.names = FALSE, quote = FALSE, na = '')
 
 ## Determine cancer types ----
 controls_df$cancers <- NA
