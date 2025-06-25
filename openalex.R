@@ -37,81 +37,90 @@ author_and_citation_stats <- function(openalex_works_df, is_retractions = TRUE) 
     
     # Get authors info
     authors_df <- work$authorships[[1]]
-    
-    # Get first author
-    first_author_id <- authors_df %>%
-      filter(author_position == 'first') %>%
-      pull(id)
-    
-    num_authors <- nrow(authors_df)
-    
-    first_author_id <- str_remove(first_author_id, 'https://openalex.org/')
-    
-    # Citation counts and h-index for first and last authors
-    # Ref: https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/authors/hirsch-index.ipynb
-    
-    print("   Fetching first author info")
-    first_author_citation_counts_df <- oa_fetch(entity = 'works',
-                                                author.id = first_author_id,
-                                                options = list(select = c('cited_by_count')),
-                                                #options = list(select = c('')),  # which columns do I want?
-                                                verbose = TRUE)
-    
-    first_author_h_index <- h_index(first_author_citation_counts_df)
-    
-    if('last' %in% authors_df$author_position) {
-      # Get last author
-      last_author_id <- authors_df %>%
-        filter(author_position == 'last') %>%
+    if(nrow(authors_df) > 0) {
+      # Get first author
+      first_author_id <- authors_df %>%
+        filter(author_position == 'first') %>%
         pull(id)
       
-      last_author_id <- str_remove(last_author_id, 'https://openalex.org/')
+      num_authors <- nrow(authors_df)
       
-      print("   Fetching last author info")   
-      last_author_citation_counts_df <- oa_fetch(entity = 'works',
-                                                 author.id = last_author_id,
-                                                 options = list(select = c('cited_by_count')),
-                                                 #options = list(select = c('')),  # which columns do I want?
-                                                 verbose = TRUE)
+      first_author_id <- str_remove(first_author_id, 'https://openalex.org/')
       
-      last_author_h_index <- h_index(last_author_citation_counts_df)
+      # Citation counts and h-index for first and last authors
+      # Ref: https://github.com/ourresearch/openalex-api-tutorials/blob/main/notebooks/authors/hirsch-index.ipynb
+      
+      print("   Fetching first author info")
+      first_author_citation_counts_df <- oa_fetch(entity = 'works',
+                                                  author.id = first_author_id,
+                                                  options = list(select = c('cited_by_count')),
+                                                  #options = list(select = c('')),  # which columns do I want?
+                                                  verbose = TRUE)
+      
+      first_author_h_index <- h_index(first_author_citation_counts_df)
+      
+      if('last' %in% authors_df$author_position) {
+        # Get last author
+        last_author_id <- authors_df %>%
+          filter(author_position == 'last') %>%
+          pull(id)
+        
+        last_author_id <- str_remove(last_author_id, 'https://openalex.org/')
+        
+        print("   Fetching last author info")   
+        last_author_citation_counts_df <- oa_fetch(entity = 'works',
+                                                   author.id = last_author_id,
+                                                   options = list(select = c('cited_by_count')),
+                                                   #options = list(select = c('')),  # which columns do I want?
+                                                   verbose = TRUE)
+        
+        last_author_h_index <- h_index(last_author_citation_counts_df)
+      } else {
+        last_author_h_index <- first_author_h_index # since there's only 1 author
+      }
+      
+      # Author countries
+      authors_countries <- c()
+      for (affiliation_df in authors_df$affiliations) {
+        country_codes <- affiliation_df$country_code
+        if('NA' %in% country_codes) next
+        authors_countries <- unique(c(authors_countries, country_codes))
+      }
+      
+      authors_countries_list <- paste(authors_countries, collapse = ';')
+      
+      # First author countries
+      first_author_df <- authors_df %>%
+        filter(author_position == 'first')
+      first_author_countries <- c()
+      for (affiliation_df in first_author_df$affiliations) {
+        country_codes <- affiliation_df$country_code
+        if('NA' %in% country_codes) next
+        first_author_countries <- unique(c(first_author_countries, country_codes))
+      }
+      first_author_countries_list <- paste(first_author_countries, collapse = ';')
+      all_country_codes <- c(all_country_codes, first_author_countries)
+      
+      # Last author countries
+      last_author_df <- authors_df %>%
+        filter(author_position == 'last')
+      last_author_countries <- c()
+      for (affiliation_df in last_author_df$affiliations) {
+        country_codes <- affiliation_df$country_code
+        if('NA' %in% country_codes) next
+        last_author_countries <- unique(c(last_author_countries, country_codes))
+      }
+      last_author_countries_list <- paste(last_author_countries, collapse = ';')
+      all_country_codes <- c(all_country_codes, last_author_countries)
     } else {
-      last_author_h_index <- first_author_h_index # since there's only 1 author
+      # We got no authorship info
+      num_authors <- NA
+      first_author_h_index <- NA
+      last_author_h_index <- NA
+      authors_countries_list <- NA
+      first_author_countries_list <- NA
+      last_author_countries_list < NA
     }
-    
-    # Author countries
-    authors_countries <- c()
-    for (affiliation_df in authors_df$affiliations) {
-      country_codes <- affiliation_df$country_code
-      if('NA' %in% country_codes) next
-      authors_countries <- unique(c(authors_countries, country_codes))
-    }
-    
-    authors_countries_list <- paste(authors_countries, collapse = ';')
-    
-    # First author countries
-    first_author_df <- authors_df %>%
-      filter(author_position == 'first')
-    first_author_countries <- c()
-    for (affiliation_df in first_author_df$affiliations) {
-      country_codes <- affiliation_df$country_code
-      if('NA' %in% country_codes) next
-      first_author_countries <- unique(c(first_author_countries, country_codes))
-    }
-    first_author_countries_list <- paste(first_author_countries, collapse = ';')
-    all_country_codes <- c(all_country_codes, first_author_countries)
-    
-    # Last author countries
-    last_author_df <- authors_df %>%
-      filter(author_position == 'last')
-    last_author_countries <- c()
-    for (affiliation_df in last_author_df$affiliations) {
-      country_codes <- affiliation_df$country_code
-      if('NA' %in% country_codes) next
-      last_author_countries <- unique(c(last_author_countries, country_codes))
-    }
-    last_author_countries_list <- paste(last_author_countries, collapse = ';')
-    all_country_codes <- c(all_country_codes, last_author_countries)
     
     # Citations info
     if (is_retractions) {
@@ -193,7 +202,7 @@ retractions <- retractions %>%
 
 ## get openalex info on the retraction papers ----
 retractions_openalex_df <- oa_fetch(entity = 'works',
-                                    doi = retractions$OriginalPaperDOI,#[1:100],
+                                    doi = retractions$OriginalPaperDOI,
                                     #  options = list(select = c('id', 'publication_date', 'authorships',
                                     #                            'is_retracted')),
                                     verbose = TRUE)
@@ -204,7 +213,7 @@ retractions_openalex_df <- left_join(retractions_openalex_df,
                                      by = c("doi" = "OriginalPaperDOI_https"))
 
 # populate first/last authors, countries, h-index values ----
-retractions_author_stats_df <- author_and_citation_stats(openalex_works_df = retractions_openalex_df,
+retractions_author_stats_df <- author_and_citation_stats(openalex_works_df = retractions_openalex_df[3100:4000, ],
                                                          is_retractions = TRUE)
 # Join on the new results
 retractions_openalex_df <- left_join(retractions_openalex_df, retractions_author_stats_df)
@@ -278,6 +287,12 @@ controls_df <- oa_fetch(entity = 'works',
                         #  options = list(select = c('id', 'publication_date', 'authorships',
                         #                            'is_retracted')),
                         verbose = TRUE)
+
+controls_author_stats_df <- author_and_citation_stats(openalex_works_df = controls_df,
+                                                      is_retractions = FALSE)
+
+# Join on the new results
+controls_df <- left_join(controls_df, controls_author_stats_df)
 
 # Compile a list of ISSNs
 all_issns <- unique(c(retractions_openalex_df$issn_l, controls_df$issn_l))
