@@ -31,6 +31,7 @@ author_and_citation_stats <- function(openalex_works_df, is_retractions = TRUE) 
     print(paste("Paper number", i))
     
     work <- openalex_works_df[i, ]
+    print(paste("DOI =", work$doi))
     
     # Get the openalex ID (e.g. W1234567890)
     id <- str_remove(work$id, 'https://openalex.org/')
@@ -132,11 +133,17 @@ author_and_citation_stats <- function(openalex_works_df, is_retractions = TRUE) 
           oa_fetch(entity = 'works',
                    cites = id,
                    options = list(select = c("publication_date")),
-                   verbose = TRUE) %>%
-          pull(publication_date)
-        
-        citations_before_retraction <- sum(citations_publications_dates <= retraction_date)
-        citations_after_retraction <- sum(citations_publications_dates > retraction_date)
+                   verbose = TRUE)
+        # sometimes even with cited_by_count of 1 (or more?), the oa_fetch above can return no records.
+        if (!is.null(citations_publications_dates)) {
+          citations_publications_dates <- citations_publications_dates %>%
+            pull(publication_date)
+          citations_before_retraction <- sum(citations_publications_dates <= retraction_date)
+          citations_after_retraction <- sum(citations_publications_dates > retraction_date)
+        } else {
+          citations_before_retraction <- NA
+          citations_after_retraction <- NA
+        }
       } else {
         citations_before_retraction <- NA
         citations_after_retraction <- NA
@@ -212,11 +219,35 @@ retractions_openalex_df <- left_join(retractions_openalex_df,
                                      retractions %>% select(OriginalPaperDOI_https, RetractionDate),
                                      by = c("doi" = "OriginalPaperDOI_https"))
 
-# populate first/last authors, countries, h-index values ----
-retractions_author_stats_df <- author_and_citation_stats(openalex_works_df = retractions_openalex_df[3100:4000, ],
-                                                         is_retractions = TRUE)
-# Join on the new results
+## populate first/last authors, countries, h-index values ----
+
+retractions_author_stats_df <- data.frame()
+first_i <- 5101
+batch_size <- 100
+for (i in seq(first_i, nrow(retractions_openalex_df), batch_size)) {
+  i_begin <- i
+  i_end <- min(i+batch_size-1, nrow(retractions_openalex_df))
+  retractions_author_stats_df_partial <- author_and_citation_stats(openalex_works_df = retractions_openalex_df[i_begin:i_end, ],
+                                                                   is_retractions = TRUE)
+  retractions_author_stats_df <- rbind(retractions_author_stats_df,
+                                       retractions_author_stats_df_partial)
+}
+## Join on the new results ----
+
+retractions_openalex_df <- retractions_openalex_df %>%
+  filter(id != 'https://openalex.org/W2694491135') %>%
+  filter(id != 'https://openalex.org/W2788672592') %>%
+  filter(id != 'https://openalex.org/W4240856930')
+
+retractions_author_stats_df <- retractions_author_stats_df %>%
+  filter(!(doi == 'https://doi.org/10.3892/etm.2017.4655' & is.na(num_authors))) %>%
+  filter(!(doi == 'https://doi.org/10.3892/or.2018.6261' & is.na(num_authors))) %>%
+  filter(!(doi == 'https://doi.org/10.1038/cgt.2010.13'))
+
 retractions_openalex_df <- left_join(retractions_openalex_df, retractions_author_stats_df)
+
+
+
 
 # Tally up the weighted concept terms
 concepts_list <- list()
@@ -251,9 +282,11 @@ concepts_df <- data.frame(concept = names(concepts_list),
 retractions <- retractions %>%
   mutate(OriginalPaperDOI_URL = paste0('https://doi.org/', OriginalPaperDOI))
 
-results_full_df <- left_join(retractions_author_stats_df, retractions, by = c('doi' = 'OriginalPaperDOI_URL'))
-results_full_df2 <- left_join(retractions, retractions_author_stats_df, by = c('OriginalPaperDOI_URL' = 'doi'))
+#results_full_df <- left_join(retractions_author_stats_df, retractions, by = c('doi' = 'OriginalPaperDOI_https'))
+results_full_df <- left_join(retractions, retractions_openalex_df, by = c('OriginalPaperDOI_https' = 'doi'))
 
+write.csv(results_full_df %>%
+            select(where(is.atomic)), 'retractions_results.csv', row.names = FALSE,na = "")
 
 # Populate topics
 topics_df <- read.csv('Top 20 Cancers OpenAlex Topic IDs - Sheet1.csv')
@@ -288,15 +321,20 @@ controls_df <- oa_fetch(entity = 'works',
                         #                            'is_retracted')),
                         verbose = TRUE)
 
+## Add author h-indices to controls_df ----
 controls_author_stats_df <- author_and_citation_stats(openalex_works_df = controls_df,
                                                       is_retractions = FALSE)
 
-# Join on the new results
+## Join on the new results ----
 controls_df <- left_join(controls_df, controls_author_stats_df)
+
+write.csv(controls_df  %>%
+            select(where(is.atomic)), 'controls_results.csv', row.names = FALSE)
 
 # Compile a list of ISSNs
 all_issns <- unique(c(retractions_openalex_df$issn_l, controls_df$issn_l))
 write.csv(x = data.frame(issn = all_issns) %>% filter(!is.na(issn)), file = 'all_issns.csv', row.names = FALSE, quote = FALSE, na = '')
+
 
 ## Determine cancer types ----
 controls_df$cancers <- NA
@@ -320,7 +358,7 @@ for(i in 1:nrow(controls_df)) {
   }
 }
 
-## Add author h-indices to controls_df ----
+
 
 
 
