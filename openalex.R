@@ -246,7 +246,22 @@ retractions_author_stats_df <- retractions_author_stats_df %>%
 
 retractions_openalex_df <- left_join(retractions_openalex_df, retractions_author_stats_df)
 
+# Assemble ISSN-JIF reference list ----
 
+# issn_list_df <- read.csv('all_issns.csv', header = FALSE, col.names = 'ISSN')
+issn_df <- read.csv('Journal Impact Factor/JIF.csv', na.strings = 'N/A') %>%
+  select(ISSN, eISSN, JIF = X2020.JIF, JCI.Year) %>%
+  distinct()
+
+eissn_df <- issn_df %>% select(issn = eISSN, JIF) %>%
+  drop_na() %>%
+  distinct() 
+
+# combine issn and eissn into one data.frame
+issn_df <- rbind(issn_df %>% select(issn = ISSN, JIF) %>% distinct(),
+                 eissn_df) %>%
+  distinct() %>%
+  drop_na()
 
 
 # Tally up the weighted concept terms
@@ -283,7 +298,8 @@ retractions <- retractions %>%
   mutate(OriginalPaperDOI_URL = paste0('https://doi.org/', OriginalPaperDOI))
 
 #results_full_df <- left_join(retractions_author_stats_df, retractions, by = c('doi' = 'OriginalPaperDOI_https'))
-results_full_df <- left_join(retractions, retractions_openalex_df, by = c('OriginalPaperDOI_https' = 'doi'))
+results_full_df <- left_join(retractions, retractions_openalex_df, by = c('OriginalPaperDOI_https' = 'doi')) %>%
+  left_join(issn_df, by = c("issn_l" = "issn"))
 
 write.csv(results_full_df %>%
             select(where(is.atomic)), 'retractions_results.csv', row.names = FALSE,na = "")
@@ -326,14 +342,15 @@ controls_author_stats_df <- author_and_citation_stats(openalex_works_df = contro
                                                       is_retractions = FALSE)
 
 ## Join on the new results ----
-controls_df <- left_join(controls_df, controls_author_stats_df)
+controls_full_df <- left_join(controls_df, controls_author_stats_df) %>%
+  left_join(issn_df, by = c('issn_l' = 'issn'))
 
-write.csv(controls_df  %>%
+write.csv(controls_full_df  %>%
             select(where(is.atomic)), 'controls_results.csv', row.names = FALSE)
 
 # Compile a list of ISSNs
-all_issns <- unique(c(retractions_openalex_df$issn_l, controls_df$issn_l))
-write.csv(x = data.frame(issn = all_issns) %>% filter(!is.na(issn)), file = 'all_issns.csv', row.names = FALSE, quote = FALSE, na = '')
+# all_issns <- unique(c(retractions_openalex_df$issn_l, controls_df$issn_l))
+# write.csv(x = data.frame(issn = all_issns) %>% filter(!is.na(issn)), file = 'all_issns.csv', row.names = FALSE, quote = FALSE, na = '')
 
 
 ## Determine cancer types ----
