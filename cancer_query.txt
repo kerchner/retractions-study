@@ -1,0 +1,7 @@
+<ENTREZ_DIRECT>
+  <Db>pubmed</Db>
+  <Query>((("neoplasms by site"[MeSH Major Topic]) OR ("neoplasms by histologic type"[MeSH Major Topic]))AND (("1975/01/01"[Date - Publication] : "3000"[Date - Publication]))) AND (English[Language])</Query>
+  <Count>2475637</Count>
+  <Step>1</Step>
+  <Elapsed>1</Elapsed>
+</ENTREZ_DIRECT>
